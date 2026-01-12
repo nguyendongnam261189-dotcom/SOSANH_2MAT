@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Upload, FileText, CheckCircle2, ChevronRight, BarChart3, Settings2, Trash2, TrendingUp, Users, LayoutList, Download, PieChart, Calendar, Presentation, Table as TableIcon, Image as ImageIcon, FileJson, School, Edit3, Type } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -167,39 +166,119 @@ const App: React.FC = () => {
     }
   };
 
+  // ✅ FULL FIXED EXCEL EXPORT: có tiêu đề + có tăng/giảm SL & TL + không mất số vì merge
   const exportSummaryExcel = () => {
     if (!oldReport || !newReport) return;
+
     const fullData = fullExportData;
     const wb = XLSX.utils.book_new();
+
     const ws_data: any[][] = [];
     const merges: XLSX.Range[] = [];
     let currentRow = 0;
 
+    // --- Helpers ---
+    const fmtPct = (v: number) => `${(Number.isFinite(v) ? v : 0).toFixed(2)}%`;
+    const diffCount = (n: number, o: number) => {
+      const d = (Number.isFinite(n) ? n : 0) - (Number.isFinite(o) ? o : 0);
+      const sign = d >= 0 ? '+ ' : '- ';
+      return sign + Math.abs(d);
+    };
+    const diffRate = (n: number, o: number) => {
+      const d = (Number.isFinite(n) ? n : 0) - (Number.isFinite(o) ? o : 0);
+      const sign = d >= 0 ? '+ ' : '- ';
+      return sign + Math.abs(d).toFixed(2) + '%';
+    };
+
+    // --- 1) TITLE (A1:I1) ---
+    const categoryTitle = activeCategory === 'study' ? 'KẾT QUẢ HỌC TẬP' : 'KẾT QUẢ RÈN LUYỆN';
+    const title = `${categoryTitle} - SO SÁNH NĂM HỌC ${oldYear} VÀ ${newYear}`;
+
+    ws_data.push([title, null, null, null, null, null, null, null, null]);
+    merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 8 } });
+    currentRow++;
+
+    // spacer row
+    ws_data.push([]);
+    currentRow++;
+
+    // --- 2) CONTENT ---
     fullData.forEach((row) => {
       const titleRank1 = 'Tốt (%)';
       const titleRank2 = 'Khá (%)';
       const titleRank3 = 'Đạt (%)';
       const titleRank4 = 'CĐ (%)';
 
+      // Header row (merge each pair)
       ws_data.push([row.label, titleRank1, null, titleRank2, null, titleRank3, null, titleRank4, null]);
-      merges.push({ s: { r: currentRow, c: 1 }, e: { r: currentRow, c: 2 } }, { s: { r: currentRow, c: 3 }, e: { r: currentRow, c: 4 } }, { s: { r: currentRow, c: 5 }, e: { r: currentRow, c: 6 } }, { s: { r: currentRow, c: 7 }, e: { r: currentRow, c: 8 } });
+      merges.push(
+        { s: { r: currentRow, c: 1 }, e: { r: currentRow, c: 2 } },
+        { s: { r: currentRow, c: 3 }, e: { r: currentRow, c: 4 } },
+        { s: { r: currentRow, c: 5 }, e: { r: currentRow, c: 6 } },
+        { s: { r: currentRow, c: 7 }, e: { r: currentRow, c: 8 } }
+      );
       currentRow++;
-      ws_data.push([null, "SL", "TL", "SL", "TL", "SL", "TL", "SL", "TL"]);
-      merges.push({ s: { r: currentRow-1, c: 0 }, e: { r: currentRow, c: 0 } });
+
+      // Subheader (merge label cell vertically across 2 header rows)
+      ws_data.push([null, 'SL', 'TL', 'SL', 'TL', 'SL', 'TL', 'SL', 'TL']);
+      merges.push({ s: { r: currentRow - 1, c: 0 }, e: { r: currentRow, c: 0 } });
       currentRow++;
-      ws_data.push([newYear, row.results.good.newCount, row.results.good.newRate.toFixed(2) + "%", row.results.fair.newCount, row.results.fair.newRate.toFixed(2) + "%", row.results.passed.newCount, row.results.passed.newRate.toFixed(2) + "%", row.results.failed.newCount, row.results.failed.newRate.toFixed(2) + "%"]);
+
+      // New year row
+      ws_data.push([
+        newYear,
+        row.results.good.newCount, fmtPct(row.results.good.newRate),
+        row.results.fair.newCount, fmtPct(row.results.fair.newRate),
+        row.results.passed.newCount, fmtPct(row.results.passed.newRate),
+        row.results.failed.newCount, fmtPct(row.results.failed.newRate),
+      ]);
       currentRow++;
-      ws_data.push([oldYear, row.results.good.oldCount, row.results.good.oldRate.toFixed(2) + "%", row.results.fair.oldCount, row.results.fair.oldRate.toFixed(2) + "%", row.results.passed.oldCount, row.results.passed.oldRate.toFixed(2) + "%", row.results.failed.oldCount, row.results.failed.oldRate.toFixed(2) + "%"]);
+
+      // Old year row
+      ws_data.push([
+        oldYear,
+        row.results.good.oldCount, fmtPct(row.results.good.oldRate),
+        row.results.fair.oldCount, fmtPct(row.results.fair.oldRate),
+        row.results.passed.oldCount, fmtPct(row.results.passed.oldRate),
+        row.results.failed.oldCount, fmtPct(row.results.failed.oldRate),
+      ]);
       currentRow++;
-      const getDiffStr = (n: number, o: number) => (n - o >= 0 ? "+ " : "- ") + Math.abs(n - o).toFixed(2) + "%";
-      ws_data.push(["Tăng/giảm", null, getDiffStr(row.results.good.newRate, row.results.good.oldRate), null, getDiffStr(row.results.fair.newRate, row.results.fair.oldRate), null, getDiffStr(row.results.passed.newRate, row.results.passed.oldRate), null, getDiffStr(row.results.failed.newRate, row.results.failed.oldRate)]);
-      merges.push({ s: { r: currentRow, c: 1 }, e: { r: currentRow, c: 2 } }, { s: { r: currentRow, c: 3 }, e: { r: currentRow, c: 4 } }, { s: { r: currentRow, c: 5 }, e: { r: currentRow, c: 6 } }, { s: { r: currentRow, c: 7 }, e: { r: currentRow, c: 8 } });
-      currentRow += 2; ws_data.push([]); 
+
+      // ✅ Diff row (KHÔNG MERGE - để khỏi mất số)
+      ws_data.push([
+        'Tăng/giảm',
+        diffCount(row.results.good.newCount, row.results.good.oldCount),
+        diffRate(row.results.good.newRate, row.results.good.oldRate),
+
+        diffCount(row.results.fair.newCount, row.results.fair.oldCount),
+        diffRate(row.results.fair.newRate, row.results.fair.oldRate),
+
+        diffCount(row.results.passed.newCount, row.results.passed.oldCount),
+        diffRate(row.results.passed.newRate, row.results.passed.oldRate),
+
+        diffCount(row.results.failed.newCount, row.results.failed.oldCount),
+        diffRate(row.results.failed.newRate, row.results.failed.oldRate),
+      ]);
+      currentRow++;
+
+      // spacer
+      ws_data.push([]);
+      currentRow++;
     });
 
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
     ws['!merges'] = merges;
-    XLSX.utils.book_append_sheet(wb, ws, "Bao_Cao_So_Sanh");
+
+    // Optional: set column widths for readability
+    ws['!cols'] = [
+      { wch: 18 }, // label
+      { wch: 10 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Bao_Cao_So_Sanh');
     XLSX.writeFile(wb, `Bao_Cao_Doi_Soat_${activeCategory}.xlsx`);
   };
 
