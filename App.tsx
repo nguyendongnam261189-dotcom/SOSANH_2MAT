@@ -123,265 +123,264 @@ const App: React.FC = () => {
     return grades.map(g => ({ label: g, classes: newReport.filter(r => r.level === RowLevel.CLASS && r.grade === g).sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})) }));
   }, [newReport]);
 
-  // HÀM TẠO DỮ LIỆU ĐẦY ĐỦ CHI TIẾT TỪNG LỚP & TỪNG KHỐI CHO EXPORT
-  const getFullDataMatrix = useCallback(() => {
+  // TÍNH TOÁN DỮ LIỆU CHUNG (HỖ TRỢ LẤY TỔNG NĂM CŨ VÀ MỚI)
+  const getFullMatrix = useCallback(() => {
     if (!oldReport || !newReport) return { school: null, grades: [] };
-    
     const oldClasses = oldReport.filter(r => r.level === RowLevel.CLASS && selectedIdsOld.has(r.id));
     const newClasses = newReport.filter(r => r.level === RowLevel.CLASS && selectedIdsNew.has(r.id));
     const allGrades = Array.from(new Set([...oldClasses.map(c => c.grade || 'KHÁC'), ...newClasses.map(c => c.grade || 'KHÁC')])).sort();
 
-    const calcMetrics = (oClasses: RawRowData[], nClasses: RawRowData[]) => {
-      const oTotal = oClasses.reduce((s, c) => s + c.totalStudents, 0);
-      const nTotal = nClasses.reduce((s, c) => s + c.totalStudents, 0);
-      const getOSum = (rk: keyof MetricSet) => oClasses.reduce((s, c) => s + c[activeCategory][rk], 0);
-      const getNSum = (rk: keyof MetricSet) => nClasses.reduce((s, c) => s + c[activeCategory][rk], 0);
-      
+    const calc = (oCls: RawRowData[], nCls: RawRowData[]) => {
+      const oT = oCls.reduce((s, c) => s + c.totalStudents, 0);
+      const nT = nCls.reduce((s, c) => s + c.totalStudents, 0);
+      const getSum = (data: RawRowData[], rk: keyof MetricSet) => data.reduce((s, c) => s + c[activeCategory][rk], 0);
       return {
-        totalNew: nTotal,
-        results: {
-          good: { oldRate: oTotal > 0 ? (getOSum('goodCount')/oTotal)*100 : 0, newRate: nTotal > 0 ? (getNSum('goodCount')/nTotal)*100 : 0 },
-          fair: { oldRate: oTotal > 0 ? (getOSum('fairCount')/oTotal)*100 : 0, newRate: nTotal > 0 ? (getNSum('fairCount')/nTotal)*100 : 0 },
-          passed: { oldRate: oTotal > 0 ? (getOSum('passedCount')/oTotal)*100 : 0, newRate: nTotal > 0 ? (getNSum('passedCount')/nTotal)*100 : 0 },
-          failed: { oldRate: oTotal > 0 ? (getOSum('failedCount')/oTotal)*100 : 0, newRate: nTotal > 0 ? (getNSum('failedCount')/nTotal)*100 : 0 },
+        totalOld: oT,
+        totalNew: nT,
+        metrics: {
+          good: { oSL: getSum(oCls, 'goodCount'), oTL: oT > 0 ? (getSum(oCls, 'goodCount')/oT)*100 : 0, nSL: getSum(nCls, 'goodCount'), nTL: nT > 0 ? (getSum(nCls, 'goodCount')/nT)*100 : 0 },
+          fair: { oSL: getSum(oCls, 'fairCount'), oTL: oT > 0 ? (getSum(oCls, 'fairCount')/oT)*100 : 0, nSL: getSum(nCls, 'fairCount'), nTL: nT > 0 ? (getSum(nCls, 'fairCount')/nT)*100 : 0 },
+          passed: { oSL: getSum(oCls, 'passedCount'), oTL: oT > 0 ? (getSum(oCls, 'passedCount')/oT)*100 : 0, nSL: getSum(nCls, 'passedCount'), nTL: nT > 0 ? (getSum(nCls, 'passedCount')/nT)*100 : 0 },
+          failed: { oSL: getSum(oCls, 'failedCount'), oTL: oT > 0 ? (getSum(oCls, 'failedCount')/oT)*100 : 0, nSL: getSum(nCls, 'failedCount'), nTL: nT > 0 ? (getSum(nCls, 'failedCount')/nT)*100 : 0 },
         }
       };
     };
 
-    const school = { label: 'TOÀN TRƯỜNG', isTotal: true, ...calcMetrics(oldClasses, newClasses) };
-    
+    const school = { label: 'TOÀN TRƯỜNG', isGroup: true, ...calc(oldClasses, newClasses) };
     const grades = allGrades.map(g => {
-      const oGrade = oldClasses.filter(c => (c.grade || 'KHÁC') === g);
-      const nGrade = newClasses.filter(c => (c.grade || 'KHÁC') === g);
-      const classLabels = Array.from(new Set([...oGrade.map(c=>c.label), ...nGrade.map(c=>c.label)])).sort((a,b)=>a.localeCompare(b, undefined, {numeric: true}));
-      
-      const classes = classLabels.map(cl => {
-         const oc = oGrade.filter(c => c.label === cl);
-         const nc = nGrade.filter(c => c.label === cl);
-         return { label: cl, isTotal: false, ...calcMetrics(oc, nc) };
-      });
-
+      const og = oldClasses.filter(c => (c.grade || 'KHÁC') === g);
+      const ng = newClasses.filter(c => (c.grade || 'KHÁC') === g);
+      const clsLabels = Array.from(new Set([...og.map(c=>c.label), ...ng.map(c=>c.label)])).sort((a,b)=>a.localeCompare(b, undefined, {numeric: true}));
       return {
-         label: g,
-         isTotal: true,
-         ...calcMetrics(oGrade, nGrade),
-         classes
+        label: g, isGroup: true, ...calc(og, ng),
+        classes: clsLabels.map(cl => ({ label: cl, isGroup: false, ...calc(og.filter(c=>c.label===cl), ng.filter(c=>c.label===cl)) }))
       };
     });
-
     return { school, grades };
   }, [oldReport, newReport, selectedIdsOld, selectedIdsNew, activeCategory]);
 
-  const exportAsImage = async (targetRef: React.RefObject<HTMLDivElement | null>, name: string) => { /*... giữ nguyên ...*/ };
-  const exportAsPDF = async (targetRef: React.RefObject<HTMLDivElement | null>, name: string) => { /*... giữ nguyên ...*/ };
-
-  // ✅ EXCEL EXPORT - CHIA TỪNG BẢNG CHO TỪNG KHỐI (A4 DỌC)
-  const exportSummaryExcel = async () => {
-    if (!oldReport || !newReport) return;
+  const exportAsImage = async (targetRef: React.RefObject<HTMLDivElement | null>, name: string) => {
+    if (!targetRef.current) return;
     try {
       setLoading(true);
-      const matrix = getFullDataMatrix();
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Bao_Cao_So_Sanh');
-
-      ws.pageSetup = {
-        paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
-        margins: { left: 0.2, right: 0.2, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 }
-      };
-
-      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
-      const blueFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F0F8' } };
-      const thinBorder: ExcelJS.Borders = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
-      const boldFont: ExcelJS.Font = { name: 'Times New Roman', size: 10, bold: true };
-      const normalFont: ExcelJS.Font = { name: 'Times New Roman', size: 10 };
-      const titleFont: ExcelJS.Font = { name: 'Times New Roman', size: 14, bold: true };
-
-      const categoryTitle = activeCategory === 'study' ? 'KẾT QUẢ HỌC TẬP' : 'KẾT QUẢ RÈN LUYỆN';
-      ws.mergeCells('A1:N1');
-      ws.getCell('A1').value = `BÁO CÁO SO SÁNH ${categoryTitle}`;
-      ws.getCell('A1').font = titleFont;
-      ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
-
-      ws.mergeCells('A2:N2');
-      ws.getCell('A2').value = `Năm học ${newYear} so với ${oldYear}`;
-      ws.getCell('A2').font = { name: 'Times New Roman', size: 11, italic: true };
-      ws.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle' };
-
-      let currentRow = 4;
-
-      const drawTable = (title: string, dataRows: any[]) => {
-        // Tên Khối
-        ws.mergeCells(`A${currentRow}:N${currentRow}`);
-        ws.getCell(`A${currentRow}`).value = title;
-        ws.getCell(`A${currentRow}`).font = { name: 'Times New Roman', size: 12, bold: true };
-        currentRow++;
-
-        // Header dòng 1
-        ws.mergeCells(`A${currentRow}:A${currentRow+1}`); ws.getCell(`A${currentRow}`).value = 'Đơn vị/Lớp';
-        ws.mergeCells(`B${currentRow}:B${currentRow+1}`); ws.getCell(`B${currentRow}`).value = `Sĩ số\n(${newYear})`;
-        ws.mergeCells(`C${currentRow}:E${currentRow}`); ws.getCell(`C${currentRow}`).value = 'TỐT (%)';
-        ws.mergeCells(`F${currentRow}:H${currentRow}`); ws.getCell(`F${currentRow}`).value = 'KHÁ (%)';
-        ws.mergeCells(`I${currentRow}:K${currentRow}`); ws.getCell(`I${currentRow}`).value = 'ĐẠT (%)';
-        ws.mergeCells(`L${currentRow}:N${currentRow}`); ws.getCell(`L${currentRow}`).value = 'CĐ (%)';
-
-        // Header dòng 2
-        let colIdx = 3;
-        for (let i = 0; i < 4; i++) {
-          ws.getCell(currentRow+1, colIdx).value = oldYear;
-          ws.getCell(currentRow+1, colIdx + 1).value = newYear;
-          ws.getCell(currentRow+1, colIdx + 2).value = '+/-';
-          colIdx += 3;
-        }
-
-        // Style Header
-        for (let r = currentRow; r <= currentRow + 1; r++) {
-          for (let c = 1; c <= 14; c++) {
-            const cell = ws.getCell(r, c);
-            cell.font = boldFont; cell.fill = headerFill; cell.border = thinBorder;
-            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-          }
-        }
-        currentRow += 2;
-
-        // Data
-        dataRows.forEach(row => {
-          const r = ws.getRow(currentRow);
-          const tr = row.results;
-          r.getCell(1).value = row.label; r.getCell(2).value = row.totalNew;
-          
-          r.getCell(3).value = tr.good.oldRate / 100; r.getCell(4).value = tr.good.newRate / 100; r.getCell(5).value = (tr.good.newRate - tr.good.oldRate) / 100;
-          r.getCell(6).value = tr.fair.oldRate / 100; r.getCell(7).value = tr.fair.newRate / 100; r.getCell(8).value = (tr.fair.newRate - tr.fair.oldRate) / 100;
-          r.getCell(9).value = tr.passed.oldRate / 100; r.getCell(10).value = tr.passed.newRate / 100; r.getCell(11).value = (tr.passed.newRate - tr.passed.oldRate) / 100;
-          r.getCell(12).value = tr.failed.oldRate / 100; r.getCell(13).value = tr.failed.newRate / 100; r.getCell(14).value = (tr.failed.newRate - tr.failed.oldRate) / 100;
-
-          for (let c = 1; c <= 14; c++) {
-            const cell = r.getCell(c);
-            cell.border = thinBorder;
-            cell.font = row.isTotal ? boldFont : normalFont;
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
-            if (c === 1) cell.alignment = { horizontal: 'left', vertical: 'middle' };
-            if (row.isTotal) cell.fill = blueFill;
-
-            if (c >= 3) {
-              cell.numFmt = '0.00%';
-              if ([5, 8, 11, 14].includes(c)) {
-                const val = cell.value as number;
-                if (val > 0) cell.font = { ...cell.font, color: { argb: 'FF008000' } };
-                else if (val < 0) cell.font = { ...cell.font, color: { argb: 'FFFF0000' } };
-              }
-            }
-          }
-          currentRow++;
-        });
-        currentRow += 1; // Khoảng trống giữa các khối
-      };
-
-      // VẼ BẢNG TOÀN TRƯỜNG
-      drawTable('I. TỔNG HỢP TOÀN TRƯỜNG', [matrix.school]);
-      
-      // VẼ TỪNG BẢNG KHỐI
-      ws.getCell(`A${currentRow}`).value = 'II. CHI TIẾT CÁC KHỐI';
-      ws.getCell(`A${currentRow}`).font = { name: 'Times New Roman', size: 12, bold: true, italic: true };
-      currentRow++;
-      
-      matrix.grades.forEach((g, idx) => {
-        const rows = [...g.classes, { ...g, label: `Tổng ${g.label}` }];
-        drawTable(`${idx + 1}. ${g.label.toUpperCase()}`, rows);
-      });
-
-      ws.getColumn(1).width = 18; ws.getColumn(2).width = 6;
-      for (let c = 3; c <= 14; c++) ws.getColumn(c).width = 7.5;
-
-      const buffer = await wb.xlsx.writeBuffer();
-      saveAs(new Blob([buffer]), `Bao_Cao_So_Sanh_${activeCategory}.xlsx`);
-    } catch (err) { setError("Có lỗi khi xuất Excel."); } finally { setLoading(false); }
+      const dataUrl = await toPng(targetRef.current, { backgroundColor: '#ffffff', cacheBust: true, pixelRatio: 3 });
+      const link = document.createElement('a');
+      link.download = `${name}_${Date.now()}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) { console.error("Export Error:", err); } finally { setLoading(false); }
   };
 
-  // ✅ WORD EXPORT - CHIA TỪNG BẢNG CHO TỪNG KHỐI (A4 DỌC CHUẨN)
-  const exportSummaryWord = async () => {
+  const exportAsPDF = async (targetRef: React.RefObject<HTMLDivElement | null>, name: string) => {
+    if (!targetRef.current) return;
+    try {
+      setLoading(true);
+      const canvas = await toPng(targetRef.current, { backgroundColor: '#ffffff', pixelRatio: 2, cacheBust: true });
+      const pdf = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const imgProps = pdf.getImageProperties(canvas);
+      const ratio = imgProps.width / (pdfWidth - 20);
+      pdf.addImage(canvas, 'PNG', 10, 10, pdfWidth - 20, imgProps.height / ratio);
+      pdf.save(`${name}_${Date.now()}.pdf`);
+    } catch (err) { console.error("PDF Error:", err); } finally { setLoading(false); }
+  };
+
+  // -------------------------------------------------------------------
+  // ✅ MẪU 2: BẢNG 10 CỘT x 4 HÀNG CHO MỖI KHỐI/LỚP
+  // -------------------------------------------------------------------
+  
+  // XUẤT EXCEL THEO CẤU TRÚC 10 CỘT X 4 HÀNG
+  const exportSummaryExcelMẫu2 = async () => {
     if (!oldReport || !newReport) return;
     try {
       setLoading(true);
-      const matrix = getFullDataMatrix();
-      const categoryTitle = activeCategory === 'study' ? 'KẾT QUẢ HỌC TẬP' : 'KẾT QUẢ RÈN LUYỆN';
+      const matrix = getFullMatrix();
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Báo Cáo Chuẩn A4');
 
-      const createHeaderCell = (text: string, rowSpan = 1, colSpan = 1) => new docx.TableCell({
-          children: [new docx.Paragraph({ text, alignment: docx.AlignmentType.CENTER, style: "HeaderStyle" })],
-          rowSpan, columnSpan: colSpan, verticalAlign: docx.VerticalAlign.CENTER,
-          shading: { fill: "F2F2F2" }, margins: { top: 40, bottom: 40, left: 40, right: 40 }
+      ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, margins: { left: 0.2, right: 0.2, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } };
+      const border: ExcelJS.Borders = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F0F8' } };
+
+      ws.mergeCells('A1:J1');
+      ws.getCell('A1').value = `BÁO CÁO SO SÁNH ${activeCategory === 'study' ? 'HỌC TẬP' : 'RÈN LUYỆN'}`;
+      ws.getCell('A1').font = { name: 'Times New Roman', size: 16, bold: true };
+      ws.getCell('A1').alignment = { horizontal: 'center' };
+
+      let currRow = 3;
+
+      const drawBlock = (title: string, data: any) => {
+        // Tiêu đề đơn vị (Khối/Lớp)
+        ws.mergeCells(`A${currRow}:J${currRow}`);
+        ws.getCell(`A${currRow}`).value = title;
+        ws.getCell(`A${currRow}`).font = { name: 'Times New Roman', size: 12, bold: true, color: { argb: 'FF0000FF' } };
+        ws.getCell(`A${currRow}`).alignment = { vertical: 'middle', horizontal: 'left' };
+        currRow++;
+
+        // Hàng 1: Tiêu đề cột
+        const headers = ['Năm học', 'Tổng số HS', 'Tốt (SL)', 'Tốt (%)', 'Khá (SL)', 'Khá (%)', 'Đạt (SL)', 'Đạt (%)', 'CĐ (SL)', 'CĐ (%)'];
+        const headerRow = ws.getRow(currRow);
+        headers.forEach((h, i) => {
+          const cell = headerRow.getCell(i + 1);
+          cell.value = h;
+          cell.font = { name: 'Times New Roman', bold: true, size: 10 };
+          cell.fill = headerFill;
+          cell.border = border;
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+        currRow++;
+
+        // Hàng 2: Năm cũ
+        const rOld = ws.getRow(currRow);
+        rOld.getCell(1).value = oldYear; rOld.getCell(2).value = data.totalOld;
+        rOld.getCell(3).value = data.metrics.good.oSL; rOld.getCell(4).value = data.metrics.good.oTL / 100;
+        rOld.getCell(5).value = data.metrics.fair.oSL; rOld.getCell(6).value = data.metrics.fair.oTL / 100;
+        rOld.getCell(7).value = data.metrics.passed.oSL; rOld.getCell(8).value = data.metrics.passed.oTL / 100;
+        rOld.getCell(9).value = data.metrics.failed.oSL; rOld.getCell(10).value = data.metrics.failed.oTL / 100;
+        currRow++;
+
+        // Hàng 3: Năm mới
+        const rNew = ws.getRow(currRow);
+        rNew.getCell(1).value = newYear; rNew.getCell(2).value = data.totalNew;
+        rNew.getCell(3).value = data.metrics.good.nSL; rNew.getCell(4).value = data.metrics.good.nTL / 100;
+        rNew.getCell(5).value = data.metrics.fair.nSL; rNew.getCell(6).value = data.metrics.fair.nTL / 100;
+        rNew.getCell(7).value = data.metrics.passed.nSL; rNew.getCell(8).value = data.metrics.passed.nTL / 100;
+        rNew.getCell(9).value = data.metrics.failed.nSL; rNew.getCell(10).value = data.metrics.failed.nTL / 100;
+        currRow++;
+
+        // Hàng 4: Tăng/giảm
+        const rDiff = ws.getRow(currRow);
+        rDiff.getCell(1).value = 'Tăng / giảm'; rDiff.getCell(2).value = data.totalNew - data.totalOld;
+        rDiff.getCell(3).value = data.metrics.good.nSL - data.metrics.good.oSL; rDiff.getCell(4).value = (data.metrics.good.nTL - data.metrics.good.oTL) / 100;
+        rDiff.getCell(5).value = data.metrics.fair.nSL - data.metrics.fair.oSL; rDiff.getCell(6).value = (data.metrics.fair.nTL - data.metrics.fair.oTL) / 100;
+        rDiff.getCell(7).value = data.metrics.passed.nSL - data.metrics.passed.oSL; rDiff.getCell(8).value = (data.metrics.passed.nTL - data.metrics.passed.oTL) / 100;
+        rDiff.getCell(9).value = data.metrics.failed.nSL - data.metrics.failed.oSL; rDiff.getCell(10).value = (data.metrics.failed.nTL - data.metrics.failed.oTL) / 100;
+        currRow++;
+
+        // Áp dụng viền, font, màu sắc cho 3 hàng dữ liệu
+        for (let r = currRow - 3; r <= currRow - 1; r++) {
+          const row = ws.getRow(r);
+          for (let c = 1; c <= 10; c++) {
+            const cell = row.getCell(c);
+            cell.border = border;
+            cell.font = { name: 'Times New Roman', size: 10, bold: r === currRow - 1 };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            
+            // Format % cho các cột chẵn từ cột 4 trở đi
+            if (c % 2 === 0 && c >= 4) cell.numFmt = '0.00%'; 
+            
+            // Đổi màu xanh/đỏ cho hàng Tăng/giảm
+            if (r === currRow - 1 && c > 1) {
+               const val = cell.value as number;
+               if (val > 0) cell.font.color = { argb: 'FF008000' };
+               else if (val < 0) cell.font.color = { argb: 'FFFF0000' };
+            }
+          }
+        }
+        currRow++; // Xuống dòng cách 1 hàng cho bảng tiếp theo
+      };
+
+      drawBlock(`I. ${matrix.school.label}`, matrix.school);
+      matrix.grades.forEach((g, idx) => {
+        drawBlock(`II.${idx+1}. KHỐI: ${g.label.toUpperCase()}`, g);
+        g.classes.forEach(c => drawBlock(`Lớp: ${c.label}`, c));
       });
 
-      const createTableDocx = (dataRows: any[]) => {
-        return new docx.Table({
-            width: { size: 100, type: docx.WidthType.PERCENTAGE },
-            rows: [
-                new docx.TableRow({
-                    children: [
-                        createHeaderCell("Lớp", 2, 1), createHeaderCell(`Sĩ số\n(${newYear})`, 2, 1),
-                        createHeaderCell("TỐT (%)", 1, 3), createHeaderCell("KHÁ (%)", 1, 3),
-                        createHeaderCell("ĐẠT (%)", 1, 3), createHeaderCell("CĐ (%)", 1, 3),
-                    ]
-                }),
-                new docx.TableRow({
-                    children: [
-                        ...[oldYear, newYear, '+/-', oldYear, newYear, '+/-', oldYear, newYear, '+/-', oldYear, newYear, '+/-'].map(t => createHeaderCell(t))
-                    ]
-                }),
-                ...dataRows.map(row => {
-                    const createCell = (val: string, color?: string, align = docx.AlignmentType.CENTER) => new docx.TableCell({
-                        children: [new docx.Paragraph({
-                            alignment: align,
-                            children: [new docx.TextRun({ text: val, bold: row.isTotal, color: color, font: "Times New Roman", size: 18 })]
-                        })],
-                        shading: row.isTotal ? { fill: "E9F0F8" } : undefined,
-                        verticalAlign: docx.VerticalAlign.CENTER, margins: { top: 40, bottom: 40, left: 40, right: 40 }
-                    });
+      // Căn chỉnh độ rộng cột chuẩn A4 dọc
+      ws.getColumn(1).width = 15;
+      ws.getColumn(2).width = 10;
+      for (let c = 3; c <= 10; c++) ws.getColumn(c).width = 9;
 
-                    const tr = row.results;
-                    const getDiffColor = (diff: number) => diff > 0 ? "008000" : diff < 0 ? "FF0000" : "000000";
-                    const getDiffStr = (diff: number) => diff > 0 ? `+${diff.toFixed(1)}` : `${diff.toFixed(1)}`;
-                    
-                    return new docx.TableRow({
-                        children: [
-                            createCell(row.label, undefined, docx.AlignmentType.LEFT),
-                            createCell(row.totalNew.toString()),
-                            createCell(tr.good.oldRate.toFixed(1)), createCell(tr.good.newRate.toFixed(1)), createCell(getDiffStr(tr.good.newRate - tr.good.oldRate), getDiffColor(tr.good.newRate - tr.good.oldRate)),
-                            createCell(tr.fair.oldRate.toFixed(1)), createCell(tr.fair.newRate.toFixed(1)), createCell(getDiffStr(tr.fair.newRate - tr.fair.oldRate), getDiffColor(tr.fair.newRate - tr.fair.oldRate)),
-                            createCell(tr.passed.oldRate.toFixed(1)), createCell(tr.passed.newRate.toFixed(1)), createCell(getDiffStr(tr.passed.newRate - tr.passed.oldRate), getDiffColor(tr.passed.newRate - tr.passed.oldRate)),
-                            createCell(tr.failed.oldRate.toFixed(1)), createCell(tr.failed.newRate.toFixed(1)), createCell(getDiffStr(tr.failed.newRate - tr.failed.oldRate), getDiffColor(tr.failed.newRate - tr.failed.oldRate)),
-                        ]
-                    });
-                })
-            ]
+      const buffer = await wb.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `So_Sanh_Mau_2_${newYear}.xlsx`);
+    } catch (e) { setError("Lỗi xuất Excel"); } finally { setLoading(false); }
+  };
+
+  // XUẤT WORD THEO CẤU TRÚC 10 CỘT X 4 HÀNG
+  const exportSummaryWordMẫu2 = async () => {
+    if (!oldReport || !newReport) return;
+    try {
+      setLoading(true);
+      const matrix = getFullMatrix();
+      const categoryTitle = activeCategory === 'study' ? 'HỌC TẬP' : 'RÈN LUYỆN';
+
+      const createCell = (t: string, b = false, align = docx.AlignmentType.CENTER, color?: string, bg?: string) => new docx.TableCell({
+        children: [new docx.Paragraph({ alignment: align, children: [new docx.TextRun({ text: t, bold: b, color: color, font: "Times New Roman", size: 18 })] })], // size 18 = 9pt
+        verticalAlign: docx.VerticalAlign.CENTER, shading: bg ? { fill: bg } : undefined,
+        margins: { top: 60, bottom: 60, left: 40, right: 40 }
+      });
+
+      const drawTableDocx = (data: any) => {
+        const hRow = new docx.TableRow({
+          children: ['Năm học', 'Tổng HS', 'Tốt (SL)', 'Tốt (%)', 'Khá (SL)', 'Khá (%)', 'Đạt (SL)', 'Đạt (%)', 'CĐ (SL)', 'CĐ (%)'].map(h => createCell(h, true, docx.AlignmentType.CENTER, undefined, "E9F0F8"))
         });
+
+        const oRow = new docx.TableRow({
+          children: [
+            createCell(oldYear), createCell(data.totalOld.toString()),
+            createCell(data.metrics.good.oSL.toString()), createCell(data.metrics.good.oTL.toFixed(2) + "%"),
+            createCell(data.metrics.fair.oSL.toString()), createCell(data.metrics.fair.oTL.toFixed(2) + "%"),
+            createCell(data.metrics.passed.oSL.toString()), createCell(data.metrics.passed.oTL.toFixed(2) + "%"),
+            createCell(data.metrics.failed.oSL.toString()), createCell(data.metrics.failed.oTL.toFixed(2) + "%"),
+          ]
+        });
+
+        const nRow = new docx.TableRow({
+          children: [
+            createCell(newYear), createCell(data.totalNew.toString()),
+            createCell(data.metrics.good.nSL.toString()), createCell(data.metrics.good.nTL.toFixed(2) + "%"),
+            createCell(data.metrics.fair.nSL.toString()), createCell(data.metrics.fair.nTL.toFixed(2) + "%"),
+            createCell(data.metrics.passed.nSL.toString()), createCell(data.metrics.passed.nTL.toFixed(2) + "%"),
+            createCell(data.metrics.failed.nSL.toString()), createCell(data.metrics.failed.nTL.toFixed(2) + "%"),
+          ]
+        });
+
+        const getColor = (v: number) => v > 0 ? "008000" : v < 0 ? "FF0000" : "000000";
+        const getVal = (v: number, isPct = false) => v > 0 ? `+${v.toFixed(isPct ? 2 : 0)}${isPct ? '%' : ''}` : `${v.toFixed(isPct ? 2 : 0)}${isPct ? '%' : ''}`;
+
+        const diffRow = new docx.TableRow({
+          children: [
+            createCell("Tăng/giảm", true), 
+            createCell(getVal(data.totalNew - data.totalOld), true, docx.AlignmentType.CENTER, getColor(data.totalNew - data.totalOld)),
+            createCell(getVal(data.metrics.good.nSL - data.metrics.good.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.good.nSL - data.metrics.good.oSL)),
+            createCell(getVal(data.metrics.good.nTL - data.metrics.good.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.good.nTL - data.metrics.good.oTL)),
+            createCell(getVal(data.metrics.fair.nSL - data.metrics.fair.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.fair.nSL - data.metrics.fair.oSL)),
+            createCell(getVal(data.metrics.fair.nTL - data.metrics.fair.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.fair.nTL - data.metrics.fair.oTL)),
+            createCell(getVal(data.metrics.passed.nSL - data.metrics.passed.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.passed.nSL - data.metrics.passed.oSL)),
+            createCell(getVal(data.metrics.passed.nTL - data.metrics.passed.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.passed.nTL - data.metrics.passed.oTL)),
+            createCell(getVal(data.metrics.failed.nSL - data.metrics.failed.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.failed.nSL - data.metrics.failed.oSL)),
+            createCell(getVal(data.metrics.failed.nTL - data.metrics.failed.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.failed.nTL - data.metrics.failed.oTL)),
+          ]
+        });
+
+        return new docx.Table({ width: { size: 100, type: docx.WidthType.PERCENTAGE }, rows: [hRow, oRow, nRow, diffRow] });
       };
 
       const docChildren: any[] = [
         new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ text: `BÁO CÁO SO SÁNH ${categoryTitle}`, bold: true, size: 28, font: "Times New Roman" })] }),
-        new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ text: `Năm học ${newYear} so với ${oldYear}`, italics: true, size: 22, font: "Times New Roman" })], spacing: { after: 300 } }),
-        
-        new docx.Paragraph({ children: [new docx.TextRun({ text: "I. TỔNG HỢP TOÀN TRƯỜNG", bold: true, size: 24, font: "Times New Roman" })], spacing: { before: 200, after: 100 } }),
-        createTableDocx([matrix.school]),
-        
-        new docx.Paragraph({ children: [new docx.TextRun({ text: "II. CHI TIẾT CÁC KHỐI", bold: true, size: 24, font: "Times New Roman" })], spacing: { before: 400, after: 100 } }),
+        new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, spacing: { after: 300 }, children: [new docx.TextRun({ text: `Năm học ${newYear} so với ${oldYear}`, italics: true, size: 22, font: "Times New Roman" })] })
       ];
 
+      docChildren.push(new docx.Paragraph({ children: [new docx.TextRun({ text: `I. ${matrix.school.label}`, bold: true, size: 20, color: "0000FF", font: "Times New Roman" })], spacing: { before: 200, after: 100 } }));
+      docChildren.push(drawTableDocx(matrix.school));
+
       matrix.grades.forEach((g, idx) => {
-        docChildren.push(new docx.Paragraph({ children: [new docx.TextRun({ text: `${idx + 1}. ${g.label.toUpperCase()}`, bold: true, size: 20, font: "Times New Roman" })], spacing: { before: 200, after: 100 } }));
-        docChildren.push(createTableDocx([...g.classes, { ...g, label: `Tổng ${g.label}` }]));
+        docChildren.push(new docx.Paragraph({ children: [new docx.TextRun({ text: `II.${idx+1}. KHỐI: ${g.label.toUpperCase()}`, bold: true, size: 20, color: "0000FF", font: "Times New Roman" })], spacing: { before: 300, after: 100 } }));
+        docChildren.push(drawTableDocx(g));
+        
+        g.classes.forEach(c => {
+          docChildren.push(new docx.Paragraph({ children: [new docx.TextRun({ text: `Lớp: ${c.label}`, bold: true, size: 18, font: "Times New Roman" })], spacing: { before: 150, after: 100 } }));
+          docChildren.push(drawTableDocx(c));
+        });
       });
 
       const doc = new docx.Document({
-          styles: { paragraphStyles: [{ id: "HeaderStyle", name: "Header Style", basedOn: "Normal", run: { bold: true, font: "Times New Roman", size: 16 } }] },
-          sections: [{
-              properties: { page: { margin: { top: 720, right: 400, bottom: 720, left: 400 }, size: { orientation: docx.PageOrientation.PORTRAIT } } },
-              children: docChildren
-          }]
+        sections: [{ properties: { page: { size: { orientation: docx.PageOrientation.PORTRAIT }, margin: { top: 720, right: 400, bottom: 720, left: 400 } } }, children: docChildren }]
       });
-      
+
       const blob = await docx.Packer.toBlob(doc);
-      saveAs(blob, `Bao_Cao_So_Sanh_${activeCategory}.docx`);
-    } catch (error) { setError("Không thể xuất file Word."); } finally { setLoading(false); }
+      saveAs(blob, `So_Sanh_Mau_2_${newYear}.docx`);
+    } catch (e) { setError("Lỗi xuất Word"); } finally { setLoading(false); }
   };
 
   return (
@@ -400,10 +399,17 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             { (oldReport && newReport) && (
               <div className="flex gap-2 bg-slate-100 p-1 rounded-xl mr-4">
-                <button onClick={() => exportAsImage(reportRef, `Bao_Cao_${activeCategory}`)} title="Xuất Toàn Bộ Ảnh" className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><ImageIcon size={18} /></button>
-                <button onClick={() => exportAsPDF(reportRef, `Bao_Cao_${activeCategory}`)} title="Xuất Toàn Bộ PDF" className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><FileText size={18} /></button>
-                <button onClick={exportSummaryExcel} title="Xuất Excel Chuẩn Form" className="p-2 hover:bg-white rounded-lg transition-all text-emerald-600 flex items-center gap-1 font-bold text-xs"><FileJson size={18} /> EXCEL</button>
-                <button onClick={exportSummaryWord} title="Xuất Word Chuẩn Form" className="p-2 hover:bg-white rounded-lg transition-all text-blue-600 flex items-center gap-1 font-bold text-xs"><FileText size={18} /> WORD</button>
+                <button onClick={() => exportAsImage(reportRef, `Bao_Cao`)} className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><ImageIcon size={18} /></button>
+                <button onClick={() => exportAsPDF(reportRef, `Bao_Cao`)} className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><FileText size={18} /></button>
+                
+                {/* NHÓM NÚT XUẤT FILE MẪU 2 (CHUẨN BÁO CÁO A4) */}
+                <div className="h-8 w-px bg-slate-300 mx-1"></div>
+                <button onClick={exportSummaryExcelMẫu2} className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-all flex items-center gap-1 font-bold text-[10px] border border-emerald-200">
+                  <FileJson size={14} /> EXCEL (MẪU 2)
+                </button>
+                <button onClick={exportSummaryWordMẫu2} className="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-all flex items-center gap-1 font-bold text-[10px] border border-blue-200">
+                  <FileText size={14} /> WORD (MẪU 2)
+                </button>
               </div>
             )}
             { (oldReport || newReport) && (
@@ -423,19 +429,10 @@ const App: React.FC = () => {
               <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center mb-6 shadow-inner ${oldReport ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
                 {oldReport ? <CheckCircle2 size={48} /> : <Upload size={48} />}
               </div>
-              <h3 className="text-2xl font-black mb-2 text-slate-800">Dữ Liệu Năm Cũ</h3>
-              <p className="text-slate-500 text-sm mb-4">Tải tệp Excel báo cáo của năm học trước.</p>
-              <div className="flex flex-col gap-2 mb-6">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">NHẬP NĂM HỌC CŨ</span>
-                <input 
-                  type="text" 
-                  value={oldYear} 
-                  onChange={(e) => setOldYear(e.target.value)} 
-                  className="bg-slate-100 border-none rounded-lg px-4 py-2 text-xs font-bold text-center w-40 focus:ring-2 focus:ring-indigo-500" 
-                />
-              </div>
+              <h3 className="text-2xl font-black mb-2 text-slate-800">Năm cũ: {oldYear}</h3>
+              <input type="text" value={oldYear} onChange={(e) => setOldYear(e.target.value)} className="mb-6 bg-slate-100 border-none rounded-lg px-4 py-2 text-xs font-bold text-center w-40 focus:ring-2 focus:ring-indigo-500" />
               <label className="cursor-pointer bg-slate-900 text-white px-10 py-4 rounded-2xl font-black hover:bg-indigo-600 transition-all shadow-xl active:scale-95">
-                CHỌN FILE
+                CHỌN FILE CŨ
                 <input type="file" className="hidden" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'old')} />
               </label>
             </div>
@@ -443,19 +440,10 @@ const App: React.FC = () => {
               <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center mb-6 shadow-inner ${newReport ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
                 {newReport ? <CheckCircle2 size={48} /> : <Upload size={48} />}
               </div>
-              <h3 className="text-2xl font-black mb-2 text-slate-800">Dữ Liệu Năm Mới</h3>
-              <p className="text-slate-500 text-sm mb-4">Tải tệp Excel báo cáo của năm học hiện tại.</p>
-              <div className="flex flex-col gap-2 mb-6">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">NHẬP NĂM HỌC MỚI</span>
-                <input 
-                  type="text" 
-                  value={newYear} 
-                  onChange={(e) => setNewYear(e.target.value)} 
-                  className="bg-slate-100 border-none rounded-lg px-4 py-2 text-xs font-bold text-center w-40 focus:ring-2 focus:ring-emerald-500" 
-                />
-              </div>
+              <h3 className="text-2xl font-black mb-2 text-slate-800">Năm mới: {newYear}</h3>
+              <input type="text" value={newYear} onChange={(e) => setNewYear(e.target.value)} className="mb-6 bg-slate-100 border-none rounded-lg px-4 py-2 text-xs font-bold text-center w-40 focus:ring-2 focus:ring-emerald-500" />
               <label className="cursor-pointer bg-slate-900 text-white px-10 py-4 rounded-2xl font-black hover:bg-emerald-600 transition-all shadow-xl active:scale-95">
-                CHỌN FILE
+                CHỌN FILE MỚI
                 <input type="file" className="hidden" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'new')} />
               </label>
             </div>
@@ -496,54 +484,27 @@ const App: React.FC = () => {
                   <button onClick={() => setActiveCategory('conduct')} className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${activeCategory === 'conduct' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>RÈN LUYỆN</button>
                   <button onClick={() => setActiveCategory('study')} className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${activeCategory === 'study' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>HỌC TẬP</button>
                 </div>
-                
-                <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
-
                 <div className="bg-slate-100 p-1.5 rounded-[1.25rem] flex gap-1">
-                  <button onClick={() => setViewMode('table')} className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${viewMode === 'table' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>
-                    <TableIcon size={14} /> BẢNG CHI TIẾT
-                  </button>
-                  <button onClick={() => setViewMode('visual')} className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${viewMode === 'visual' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>
-                    <Presentation size={14} /> TRÌNH CHIẾU
-                  </button>
+                  <button onClick={() => setViewMode('table')} className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${viewMode === 'table' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><TableIcon size={14} /> BẢNG CHI TIẾT</button>
+                  <button onClick={() => setViewMode('visual')} className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${viewMode === 'visual' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><Presentation size={14} /> TRÌNH CHIẾU</button>
                 </div>
               </div>
 
               {viewMode === 'table' ? (
                 <div ref={reportRef}>
                   <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm mb-6 group relative">
-                    <div className="flex justify-end gap-2 mb-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => exportAsImage(chartSectionRef, 'Bieu_Do_Doi_Soat')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 flex items-center gap-2 text-[10px] font-bold">
-                        <Download size={14} /> TẢI ẢNH BIỂU ĐỒ
-                      </button>
-                      <button onClick={() => exportAsPDF(chartSectionRef, 'Bieu_Do_Doi_Soat')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 flex items-center gap-2 text-[10px] font-bold">
-                        <FileText size={14} /> TẢI PDF BIỂU ĐỒ
-                      </button>
-                    </div>
-
                     <div ref={chartSectionRef} className="p-10 rounded-3xl bg-white flex flex-col items-center">
                        <div className="text-center w-full max-w-4xl mb-10 pt-10">
-                          <textarea
-                            value={reportTitle}
-                            onChange={(e) => setReportTitle(e.target.value)}
-                            className="w-full text-2xl md:text-3xl font-black text-slate-900 bg-transparent border-none focus:ring-0 resize-none text-center uppercase outline-none vietnamese-title"
-                            style={{ lineHeight: '1.6', overflow: 'hidden' }}
-                            rows={3}
-                            placeholder="Nhập tiêu đề báo cáo..."
-                          />
+                          <textarea value={reportTitle} onChange={(e) => setReportTitle(e.target.value)} className="w-full text-2xl md:text-3xl font-black text-slate-900 bg-transparent border-none focus:ring-0 resize-none text-center uppercase outline-none vietnamese-title" style={{ lineHeight: '1.6', overflow: 'hidden' }} rows={3} />
                           <div className="w-32 h-1.5 bg-indigo-600 mx-auto rounded-full mt-4"></div>
                        </div>
-                       
                       <SummaryChart data={comparisonData} oldYear={oldYear} newYear={newYear} />
                     </div>
                   </div>
-
                   <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
                     <div className="flex items-center gap-2 mb-6">
                       {(['good', 'fair', 'passed', 'failed'] as Rank[]).map(r => (
-                        <button key={r} onClick={() => setActiveRank(r)} className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeRank === r ? 'bg-slate-900 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400'}`}>
-                          {r === 'good' ? 'Tốt' : r === 'fair' ? 'Khá' : r === 'passed' ? 'Đạt' : 'CĐ'}
-                        </button>
+                        <button key={r} onClick={() => setActiveRank(r)} className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeRank === r ? 'bg-slate-900 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400'}`}>{getRankLabel(r)}</button>
                       ))}
                     </div>
                     <ComparisonTable data={comparisonData} category={activeCategory} rank={activeRank} />
@@ -552,12 +513,10 @@ const App: React.FC = () => {
               ) : (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 bg-slate-50 p-4 rounded-[2rem]" ref={reportRef}>
                    <div className="bg-white p-12 rounded-[2.5rem] mb-10 text-center shadow-xl pt-20 pb-16">
-                      <h1 className="text-4xl font-black text-slate-900 mb-6 whitespace-pre-wrap uppercase text-center leading-relaxed px-4 vietnamese-title">
-                        {reportTitle}
-                      </h1>
+                      <h1 className="text-4xl font-black text-slate-900 mb-6 uppercase leading-relaxed px-4 vietnamese-title">{reportTitle}</h1>
                       <div className="w-24 h-2 bg-indigo-600 mx-auto rounded-full"></div>
                    </div>
-                   <VisualReport data={fullExportData} oldYear={oldYear} newYear={newYear} />
+                   <VisualReport data={[]} oldYear={oldYear} newYear={newYear} />
                 </div>
               )}
             </div>
