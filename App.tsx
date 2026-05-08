@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Upload, FileText, CheckCircle2, ChevronRight, BarChart3, Settings2, Trash2, TrendingUp, Users, LayoutList, Download, PieChart, Calendar, Presentation, Table as TableIcon, Image as ImageIcon, FileJson, School, Edit3, Type } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import * as docx from 'docx';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { RawRowData, RowLevel, ComparisonRow, Category, Rank } from './types';
@@ -22,14 +25,13 @@ const App: React.FC = () => {
   const [sidebarTab, setSidebarTab] = useState<'old' | 'new'>('new');
   const [viewMode, setViewMode] = useState<'table' | 'visual'>('table'); 
   
-  const [oldYear, setOldYear] = useState('2023 - 2024');
-  const [newYear, setNewYear] = useState('2024 - 2025');
+  const [oldYear, setOldYear] = useState('2024 - 2025');
+  const [newYear, setNewYear] = useState('2025 - 2026');
   const [reportTitle, setReportTitle] = useState('');
 
   const reportRef = useRef<HTMLDivElement>(null);
   const chartSectionRef = useRef<HTMLDivElement>(null);
 
-  // Đồng nhất tên hiển thị cho Rank
   const getRankLabel = (r: Rank) => {
     switch(r) {
       case 'good': return 'TỐT';
@@ -40,14 +42,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Sync title with category, rank, and viewMode
   useEffect(() => {
     const categoryName = activeCategory === 'study' ? 'HỌC TẬP' : 'RÈN LUYỆN';
     if (viewMode === 'table') {
       const rankName = getRankLabel(activeRank);
       setReportTitle(`SO SÁNH KẾT QUẢ ${categoryName} XẾP LOẠI ${rankName}\nNĂM HỌC ${oldYear} VÀ ${newYear}`);
     } else {
-      // Chế độ trình chiếu: Thêm chữ SO SÁNH theo yêu cầu người dùng
       setReportTitle(`SO SÁNH KẾT QUẢ ${categoryName}\nNĂM HỌC ${oldYear} VÀ ${newYear}`);
     }
   }, [activeCategory, activeRank, oldYear, newYear, viewMode]);
@@ -132,20 +132,12 @@ const App: React.FC = () => {
     if (!targetRef.current) return;
     try {
       setLoading(true);
-      const dataUrl = await toPng(targetRef.current, { 
-        backgroundColor: '#ffffff', 
-        cacheBust: true,
-        pixelRatio: 3 
-      });
+      const dataUrl = await toPng(targetRef.current, { backgroundColor: '#ffffff', cacheBust: true, pixelRatio: 3 });
       const link = document.createElement('a');
       link.download = `${name}_${Date.now()}.png`;
       link.href = dataUrl;
       link.click();
-    } catch (err) {
-      console.error("Export Error:", err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error("Export Error:", err); } finally { setLoading(false); }
   };
 
   const exportAsPDF = async (targetRef: React.RefObject<HTMLDivElement | null>, name: string) => {
@@ -159,127 +151,231 @@ const App: React.FC = () => {
       const ratio = imgProps.width / (pdfWidth - 20);
       pdf.addImage(canvas, 'PNG', 10, 10, pdfWidth - 20, imgProps.height / ratio);
       pdf.save(`${name}_${Date.now()}.pdf`);
+    } catch (err) { console.error("PDF Error:", err); } finally { setLoading(false); }
+  };
+
+  // ✅ EXCEL EXPORT NÂNG CẤP KẺ KHUNG & TÔ MÀU (Dùng ExcelJS)
+  const exportSummaryExcel = async () => {
+    if (!oldReport || !newReport) return;
+    try {
+      setLoading(true);
+      const fullData = fullExportData;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Bao_Cao_So_Sanh');
+
+      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+      const blueFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F0F8' } };
+      const thinBorder: ExcelJS.Borders = {
+        top: { style: 'thin' }, left: { style: 'thin' },
+        bottom: { style: 'thin' }, right: { style: 'thin' }
+      };
+      const boldFont: ExcelJS.Font = { name: 'Times New Roman', size: 11, bold: true };
+      const normalFont: ExcelJS.Font = { name: 'Times New Roman', size: 11 };
+      const titleFont: ExcelJS.Font = { name: 'Times New Roman', size: 14, bold: true };
+
+      const categoryTitle = activeCategory === 'study' ? 'KẾT QUẢ HỌC TẬP' : 'KẾT QUẢ RÈN LUYỆN';
+      ws.mergeCells('A1:N1');
+      const titleCell = ws.getCell('A1');
+      titleCell.value = `BÁO CÁO SO SÁNH ${categoryTitle}`;
+      titleCell.font = titleFont;
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      ws.mergeCells('A2:N2');
+      const subTitleCell = ws.getCell('A2');
+      subTitleCell.value = `Năm học ${newYear} so với ${oldYear}`;
+      subTitleCell.font = { name: 'Times New Roman', size: 11, italic: true };
+      subTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      ws.mergeCells('A4:A5'); ws.getCell('A4').value = 'Đơn vị / Lớp';
+      ws.mergeCells('B4:B5'); ws.getCell('B4').value = 'Sĩ số\n(Năm nay)';
+      
+      ws.mergeCells('C4:E4'); ws.getCell('C4').value = 'KẾT QUẢ TỐT';
+      ws.mergeCells('F4:H4'); ws.getCell('F4').value = 'KẾT QUẢ KHÁ';
+      ws.mergeCells('I4:K4'); ws.getCell('I4').value = 'KẾT QUẢ ĐẠT';
+      ws.mergeCells('L4:N4'); ws.getCell('L4').value = 'CHƯA ĐẠT';
+
+      const subHeaders = ['Năm trước', 'Năm nay', '+/- %'];
+      let colIdx = 3;
+      for (let i = 0; i < 4; i++) {
+        ws.getCell(5, colIdx).value = subHeaders[0];
+        ws.getCell(5, colIdx + 1).value = subHeaders[1];
+        ws.getCell(5, colIdx + 2).value = subHeaders[2];
+        colIdx += 3;
+      }
+
+      for (let r = 4; r <= 5; r++) {
+        for (let c = 1; c <= 14; c++) {
+          const cell = ws.getCell(r, c);
+          cell.font = boldFont;
+          cell.fill = headerFill;
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+          cell.border = thinBorder;
+        }
+      }
+
+      let currentRow = 6;
+      fullData.forEach(row => {
+        const trData = row.results;
+        const totalNew = row.totalNew;
+
+        const r = ws.getRow(currentRow);
+        r.getCell(1).value = row.label;
+        r.getCell(2).value = totalNew;
+
+        r.getCell(3).value = trData.good.oldRate / 100;
+        r.getCell(4).value = trData.good.newRate / 100;
+        r.getCell(5).value = (trData.good.newRate - trData.good.oldRate) / 100;
+
+        r.getCell(6).value = trData.fair.oldRate / 100;
+        r.getCell(7).value = trData.fair.newRate / 100;
+        r.getCell(8).value = (trData.fair.newRate - trData.fair.oldRate) / 100;
+
+        r.getCell(9).value = trData.passed.oldRate / 100;
+        r.getCell(10).value = trData.passed.newRate / 100;
+        r.getCell(11).value = (trData.passed.newRate - trData.passed.oldRate) / 100;
+
+        r.getCell(12).value = trData.failed.oldRate / 100;
+        r.getCell(13).value = trData.failed.newRate / 100;
+        r.getCell(14).value = (trData.failed.newRate - trData.failed.oldRate) / 100;
+
+        const isGroup = row.label.includes('TOÀN TRƯỜNG') || row.label.includes('KHỐI');
+        const isSchool = row.label.includes('TOÀN TRƯỜNG');
+        
+        for (let c = 1; c <= 14; c++) {
+          const cell = r.getCell(c);
+          cell.border = thinBorder;
+          cell.font = isGroup ? boldFont : normalFont;
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          
+          if (c === 1) cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          if (isSchool) cell.fill = blueFill;
+
+          if (c >= 3) {
+            cell.numFmt = '0.00%';
+            if ([5, 8, 11, 14].includes(c)) {
+              const val = cell.value as number;
+              if (val > 0) cell.font = { ...cell.font, color: { argb: 'FF008000' } };
+              else if (val < 0) cell.font = { ...cell.font, color: { argb: 'FFFF0000' } };
+            }
+          }
+        }
+        currentRow++;
+      });
+
+      ws.getColumn(1).width = 25;
+      for (let c = 2; c <= 14; c++) ws.getColumn(c).width = 12;
+
+      const buffer = await wb.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `Bao_Cao_Doi_Soat_${activeCategory}.xlsx`);
     } catch (err) {
-      console.error("PDF Error:", err);
+      console.error(err);
+      setError("Có lỗi khi xuất file Excel.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ FULL FIXED EXCEL EXPORT: có tiêu đề + có tăng/giảm SL & TL + không mất số vì merge
-  const exportSummaryExcel = () => {
+  // ✅ WORD EXPORT NÂNG CẤP KẺ KHUNG (Dùng DOCX)
+  const exportSummaryWord = async () => {
     if (!oldReport || !newReport) return;
+    try {
+      setLoading(true);
+      const fullData = fullExportData;
+      const categoryTitle = activeCategory === 'study' ? 'KẾT QUẢ HỌC TẬP' : 'KẾT QUẢ RÈN LUYỆN';
 
-    const fullData = fullExportData;
-    const wb = XLSX.utils.book_new();
+      const createHeaderCell = (text: string, rowSpan = 1, colSpan = 1) => new docx.TableCell({
+          children: [new docx.Paragraph({ text, alignment: docx.AlignmentType.CENTER, style: "HeaderStyle" })],
+          rowSpan, columnSpan: colSpan, verticalAlign: docx.VerticalAlign.CENTER,
+          shading: { fill: "F2F2F2" }
+      });
 
-    const ws_data: any[][] = [];
-    const merges: XLSX.Range[] = [];
-    let currentRow = 0;
+      const doc = new docx.Document({
+          styles: {
+              paragraphStyles: [
+                  { id: "HeaderStyle", name: "Header Style", basedOn: "Normal", next: "Normal", run: { bold: true, font: "Times New Roman", size: 20 } },
+                  { id: "DataStyle", name: "Data Style", basedOn: "Normal", next: "Normal", run: { font: "Times New Roman", size: 20 } },
+              ]
+          },
+          sections: [{
+              properties: { page: { margin: { top: 700, right: 700, bottom: 700, left: 700 }, size: { orientation: docx.PageOrientation.LANDSCAPE } } },
+              children: [
+                  new docx.Paragraph({
+                      alignment: docx.AlignmentType.CENTER,
+                      children: [new docx.TextRun({ text: `BÁO CÁO SO SÁNH ${categoryTitle}`, bold: true, size: 28, font: "Times New Roman" })]
+                  }),
+                  new docx.Paragraph({
+                      alignment: docx.AlignmentType.CENTER,
+                      children: [new docx.TextRun({ text: `Năm học ${newYear} so với ${oldYear}`, italics: true, size: 22, font: "Times New Roman" })],
+                      spacing: { after: 300 }
+                  }),
+                  new docx.Table({
+                      width: { size: 100, type: docx.WidthType.PERCENTAGE },
+                      rows: [
+                          new docx.TableRow({
+                              children: [
+                                  createHeaderCell("Đơn vị/Lớp", 2, 1),
+                                  createHeaderCell("Sĩ số", 2, 1),
+                                  createHeaderCell("KẾT QUẢ TỐT", 1, 3),
+                                  createHeaderCell("KẾT QUẢ KHÁ", 1, 3),
+                                  createHeaderCell("KẾT QUẢ ĐẠT", 1, 3),
+                                  createHeaderCell("CHƯA ĐẠT", 1, 3),
+                              ]
+                          }),
+                          new docx.TableRow({
+                              children: [
+                                  ...['Năm trước', 'Năm nay', '+/- %', 'Năm trước', 'Năm nay', '+/- %', 'Năm trước', 'Năm nay', '+/- %', 'Năm trước', 'Năm nay', '+/- %'].map(t => createHeaderCell(t))
+                              ]
+                          }),
+                          ...fullData.map(row => {
+                              const isBold = row.label.includes('TOÀN TRƯỜNG') || row.label.includes('KHỐI');
+                              const isSchool = row.label.includes('TOÀN TRƯỜNG');
+                              
+                              const createCell = (val: string, color?: string, align = docx.AlignmentType.CENTER) => new docx.TableCell({
+                                  children: [new docx.Paragraph({
+                                      alignment: align,
+                                      children: [new docx.TextRun({ text: val, bold: isBold, color: color, font: "Times New Roman", size: 20 })]
+                                  })],
+                                  shading: isSchool ? { fill: "E9F0F8" } : undefined,
+                                  verticalAlign: docx.VerticalAlign.CENTER
+                              });
 
-    // --- Helpers ---
-    const fmtPct = (v: number) => `${(Number.isFinite(v) ? v : 0).toFixed(2)}%`;
-    const diffCount = (n: number, o: number) => {
-      const d = (Number.isFinite(n) ? n : 0) - (Number.isFinite(o) ? o : 0);
-      const sign = d >= 0 ? '+ ' : '- ';
-      return sign + Math.abs(d);
-    };
-    const diffRate = (n: number, o: number) => {
-      const d = (Number.isFinite(n) ? n : 0) - (Number.isFinite(o) ? o : 0);
-      const sign = d >= 0 ? '+ ' : '- ';
-      return sign + Math.abs(d).toFixed(2) + '%';
-    };
-
-    // --- 1) TITLE (A1:I1) ---
-    const categoryTitle = activeCategory === 'study' ? 'KẾT QUẢ HỌC TẬP' : 'KẾT QUẢ RÈN LUYỆN';
-    const title = `${categoryTitle} - SO SÁNH NĂM HỌC ${oldYear} VÀ ${newYear}`;
-
-    ws_data.push([title, null, null, null, null, null, null, null, null]);
-    merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 8 } });
-    currentRow++;
-
-    // spacer row
-    ws_data.push([]);
-    currentRow++;
-
-    // --- 2) CONTENT ---
-    fullData.forEach((row) => {
-      const titleRank1 = 'Tốt (%)';
-      const titleRank2 = 'Khá (%)';
-      const titleRank3 = 'Đạt (%)';
-      const titleRank4 = 'CĐ (%)';
-
-      // Header row (merge each pair)
-      ws_data.push([row.label, titleRank1, null, titleRank2, null, titleRank3, null, titleRank4, null]);
-      merges.push(
-        { s: { r: currentRow, c: 1 }, e: { r: currentRow, c: 2 } },
-        { s: { r: currentRow, c: 3 }, e: { r: currentRow, c: 4 } },
-        { s: { r: currentRow, c: 5 }, e: { r: currentRow, c: 6 } },
-        { s: { r: currentRow, c: 7 }, e: { r: currentRow, c: 8 } }
-      );
-      currentRow++;
-
-      // Subheader (merge label cell vertically across 2 header rows)
-      ws_data.push([null, 'SL', 'TL', 'SL', 'TL', 'SL', 'TL', 'SL', 'TL']);
-      merges.push({ s: { r: currentRow - 1, c: 0 }, e: { r: currentRow, c: 0 } });
-      currentRow++;
-
-      // New year row
-      ws_data.push([
-        newYear,
-        row.results.good.newCount, fmtPct(row.results.good.newRate),
-        row.results.fair.newCount, fmtPct(row.results.fair.newRate),
-        row.results.passed.newCount, fmtPct(row.results.passed.newRate),
-        row.results.failed.newCount, fmtPct(row.results.failed.newRate),
-      ]);
-      currentRow++;
-
-      // Old year row
-      ws_data.push([
-        oldYear,
-        row.results.good.oldCount, fmtPct(row.results.good.oldRate),
-        row.results.fair.oldCount, fmtPct(row.results.fair.oldRate),
-        row.results.passed.oldCount, fmtPct(row.results.passed.oldRate),
-        row.results.failed.oldCount, fmtPct(row.results.failed.oldRate),
-      ]);
-      currentRow++;
-
-      // ✅ Diff row (KHÔNG MERGE - để khỏi mất số)
-      ws_data.push([
-        'Tăng/giảm',
-        diffCount(row.results.good.newCount, row.results.good.oldCount),
-        diffRate(row.results.good.newRate, row.results.good.oldRate),
-
-        diffCount(row.results.fair.newCount, row.results.fair.oldCount),
-        diffRate(row.results.fair.newRate, row.results.fair.oldRate),
-
-        diffCount(row.results.passed.newCount, row.results.passed.oldCount),
-        diffRate(row.results.passed.newRate, row.results.passed.oldRate),
-
-        diffCount(row.results.failed.newCount, row.results.failed.oldCount),
-        diffRate(row.results.failed.newRate, row.results.failed.oldRate),
-      ]);
-      currentRow++;
-
-      // spacer
-      ws_data.push([]);
-      currentRow++;
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet(ws_data);
-    ws['!merges'] = merges;
-
-    // Optional: set column widths for readability
-    ws['!cols'] = [
-      { wch: 18 }, // label
-      { wch: 10 }, { wch: 10 },
-      { wch: 10 }, { wch: 10 },
-      { wch: 10 }, { wch: 10 },
-      { wch: 10 }, { wch: 10 },
-    ];
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Bao_Cao_So_Sanh');
-    XLSX.writeFile(wb, `Bao_Cao_Doi_Soat_${activeCategory}.xlsx`);
+                              const trData = row.results;
+                              const getDiffColor = (diff: number) => diff > 0 ? "008000" : diff < 0 ? "FF0000" : "000000";
+                              const getDiffStr = (diff: number) => diff > 0 ? `+${diff.toFixed(2)}%` : `${diff.toFixed(2)}%`;
+                              
+                              return new docx.TableRow({
+                                  children: [
+                                      createCell(row.label, undefined, docx.AlignmentType.LEFT),
+                                      createCell(row.totalNew.toString()),
+                                      createCell(trData.good.oldRate.toFixed(2) + '%'),
+                                      createCell(trData.good.newRate.toFixed(2) + '%'),
+                                      createCell(getDiffStr(trData.good.newRate - trData.good.oldRate), getDiffColor(trData.good.newRate - trData.good.oldRate)),
+                                      createCell(trData.fair.oldRate.toFixed(2) + '%'),
+                                      createCell(trData.fair.newRate.toFixed(2) + '%'),
+                                      createCell(getDiffStr(trData.fair.newRate - trData.fair.oldRate), getDiffColor(trData.fair.newRate - trData.fair.oldRate)),
+                                      createCell(trData.passed.oldRate.toFixed(2) + '%'),
+                                      createCell(trData.passed.newRate.toFixed(2) + '%'),
+                                      createCell(getDiffStr(trData.passed.newRate - trData.passed.oldRate), getDiffColor(trData.passed.newRate - trData.passed.oldRate)),
+                                      createCell(trData.failed.oldRate.toFixed(2) + '%'),
+                                      createCell(trData.failed.newRate.toFixed(2) + '%'),
+                                      createCell(getDiffStr(trData.failed.newRate - trData.failed.oldRate), getDiffColor(trData.failed.newRate - trData.failed.oldRate)),
+                                  ]
+                              });
+                          })
+                      ]
+                  })
+              ]
+          }]
+      });
+      
+      const blob = await docx.Packer.toBlob(doc);
+      saveAs(blob, `Bao_Cao_Doi_Soat_${activeCategory}.docx`);
+    } catch (error) {
+      console.error("Lỗi xuất Word:", error);
+      setError("Không thể xuất file Word.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -300,7 +396,8 @@ const App: React.FC = () => {
               <div className="flex gap-2 bg-slate-100 p-1 rounded-xl mr-4">
                 <button onClick={() => exportAsImage(reportRef, `Bao_Cao_${activeCategory}`)} title="Xuất Toàn Bộ Ảnh" className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><ImageIcon size={18} /></button>
                 <button onClick={() => exportAsPDF(reportRef, `Bao_Cao_${activeCategory}`)} title="Xuất Toàn Bộ PDF" className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><FileText size={18} /></button>
-                <button onClick={exportSummaryExcel} title="Xuất Excel" className="p-2 hover:bg-white rounded-lg transition-all text-emerald-600"><FileJson size={18} /></button>
+                <button onClick={exportSummaryExcel} title="Xuất Excel Chuẩn Form" className="p-2 hover:bg-white rounded-lg transition-all text-emerald-600 flex items-center gap-1 font-bold text-xs"><FileJson size={18} /> EXCEL</button>
+                <button onClick={exportSummaryWord} title="Xuất Word Chuẩn Form" className="p-2 hover:bg-white rounded-lg transition-all text-blue-600 flex items-center gap-1 font-bold text-xs"><FileText size={18} /> WORD</button>
               </div>
             )}
             { (oldReport || newReport) && (
@@ -327,7 +424,7 @@ const App: React.FC = () => {
                 value={oldYear} 
                 onChange={(e) => setOldYear(e.target.value)} 
                 className="mb-6 bg-slate-100 border-none rounded-lg px-4 py-2 text-xs font-bold text-center w-32 focus:ring-2 focus:ring-indigo-500" 
-                placeholder="Năm cũ (vd: 2023 - 2024)"
+                placeholder="Năm cũ (vd: 2024 - 2025)"
               />
               <label className="cursor-pointer bg-slate-900 text-white px-10 py-4 rounded-2xl font-black hover:bg-indigo-600 transition-all shadow-xl active:scale-95">
                 CHỌN FILE
@@ -345,7 +442,7 @@ const App: React.FC = () => {
                 value={newYear} 
                 onChange={(e) => setNewYear(e.target.value)} 
                 className="mb-6 bg-slate-100 border-none rounded-lg px-4 py-2 text-xs font-bold text-center w-32 focus:ring-2 focus:ring-emerald-500" 
-                placeholder="Năm mới (vd: 2024 - 2025)"
+                placeholder="Năm mới (vd: 2025 - 2026)"
               />
               <label className="cursor-pointer bg-slate-900 text-white px-10 py-4 rounded-2xl font-black hover:bg-emerald-600 transition-all shadow-xl active:scale-95">
                 CHỌN FILE
@@ -405,7 +502,6 @@ const App: React.FC = () => {
               {viewMode === 'table' ? (
                 <div ref={reportRef}>
                   <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm mb-6 group relative">
-                    {/* Control Buttons - Outside export area */}
                     <div className="flex justify-end gap-2 mb-4 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => exportAsImage(chartSectionRef, 'Bieu_Do_Doi_Soat')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 flex items-center gap-2 text-[10px] font-bold">
                         <Download size={14} /> TẢI ẢNH BIỂU ĐỒ
@@ -416,7 +512,6 @@ const App: React.FC = () => {
                     </div>
 
                     <div ref={chartSectionRef} className="p-10 rounded-3xl bg-white flex flex-col items-center">
-                       {/* Title Area with enhanced spacing for diacritics */}
                        <div className="text-center w-full max-w-4xl mb-10 pt-10">
                           <textarea
                             value={reportTitle}
