@@ -111,19 +111,6 @@ const App: React.FC = () => {
     return recalculateAndCompare(oldReport, newReport, selectedIdsOld, selectedIdsNew, activeCategory, activeRank);
   }, [oldReport, newReport, selectedIdsOld, selectedIdsNew, activeCategory, activeRank]);
 
-  const sidebarOld = useMemo(() => {
-    if (!oldReport) return [];
-    const grades = Array.from(new Set(oldReport.filter(r => r.level === RowLevel.GRADE).map(r => r.label))).sort();
-    return grades.map(g => ({ label: g, classes: oldReport.filter(r => r.level === RowLevel.CLASS && r.grade === g).sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})) }));
-  }, [oldReport]);
-
-  const sidebarNew = useMemo(() => {
-    if (!newReport) return [];
-    const grades = Array.from(new Set(newReport.filter(r => r.level === RowLevel.GRADE).map(r => r.label))).sort();
-    return grades.map(g => ({ label: g, classes: newReport.filter(r => r.level === RowLevel.CLASS && r.grade === g).sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})) }));
-  }, [newReport]);
-
-  // TÍNH TOÁN DỮ LIỆU CHUNG (HỖ TRỢ LẤY TỔNG NĂM CŨ VÀ MỚI)
   const getFullMatrix = useCallback(() => {
     if (!oldReport || !newReport) return { school: null, grades: [] };
     const oldClasses = oldReport.filter(r => r.level === RowLevel.CLASS && selectedIdsOld.has(r.id));
@@ -185,22 +172,19 @@ const App: React.FC = () => {
     } catch (err) { console.error("PDF Error:", err); } finally { setLoading(false); }
   };
 
-  // -------------------------------------------------------------------
-  // ✅ MẪU 2: BẢNG 10 CỘT x 4 HÀNG CHO MỖI KHỐI/LỚP
-  // -------------------------------------------------------------------
-  
-  // XUẤT EXCEL THEO CẤU TRÚC 10 CỘT X 4 HÀNG
+  // ✅ EXCEL MẪU 2 - NÂNG CẤP GỘP TIÊU ĐỀ (MERGE & SPLIT)
   const exportSummaryExcelMẫu2 = async () => {
     if (!oldReport || !newReport) return;
     try {
       setLoading(true);
       const matrix = getFullMatrix();
       const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Báo Cáo Chuẩn A4');
+      const ws = wb.addWorksheet('Báo Cáo Đối Soát');
 
-      ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, margins: { left: 0.2, right: 0.2, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } };
+      ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, margins: { left: 0.2, right: 0.2, top: 0.5, bottom: 0.5 } };
       const border: ExcelJS.Borders = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
       const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F0F8' } };
+      const subHeaderFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
 
       ws.mergeCells('A1:J1');
       ws.getCell('A1').value = `BÁO CÁO SO SÁNH ${activeCategory === 'study' ? 'HỌC TẬP' : 'RÈN LUYỆN'}`;
@@ -210,74 +194,85 @@ const App: React.FC = () => {
       let currRow = 3;
 
       const drawBlock = (title: string, data: any) => {
-        // Tiêu đề đơn vị (Khối/Lớp)
         ws.mergeCells(`A${currRow}:J${currRow}`);
         ws.getCell(`A${currRow}`).value = title;
         ws.getCell(`A${currRow}`).font = { name: 'Times New Roman', size: 12, bold: true, color: { argb: 'FF0000FF' } };
-        ws.getCell(`A${currRow}`).alignment = { vertical: 'middle', horizontal: 'left' };
         currRow++;
 
-        // Hàng 1: Tiêu đề cột
-        const headers = ['Năm học', 'Tổng số HS', 'Tốt (SL)', 'Tốt (%)', 'Khá (SL)', 'Khá (%)', 'Đạt (SL)', 'Đạt (%)', 'CĐ (SL)', 'CĐ (%)'];
-        const headerRow = ws.getRow(currRow);
-        headers.forEach((h, i) => {
-          const cell = headerRow.getCell(i + 1);
-          cell.value = h;
-          cell.font = { name: 'Times New Roman', bold: true, size: 10 };
-          cell.fill = headerFill;
-          cell.border = border;
-          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        // Hàng Tiêu Đề 1 (Gộp ô ngang cho các loại)
+        ws.mergeCells(`A${currRow}:A${currRow+1}`); ws.getCell(`A${currRow}`).value = 'Năm học';
+        ws.mergeCells(`B${currRow}:B${currRow+1}`); ws.getCell(`B${currRow}`).value = 'Tổng số HS';
+        ws.mergeCells(`C${currRow}:D${currRow}`); ws.getCell(`C${currRow}`).value = 'TỐT';
+        ws.mergeCells(`E${currRow}:F${currRow}`); ws.getCell(`E${currRow}`).value = 'KHÁ';
+        ws.mergeCells(`G${currRow}:H${currRow}`); ws.getCell(`G${currRow}`).value = 'ĐẠT';
+        ws.mergeCells(`I${currRow}:J${currRow}`); ws.getCell(`I${currRow}`).value = 'CĐ';
+
+        // Hàng Tiêu Đề 2 (Chia nhỏ SL và Tỉ lệ)
+        const subHeaders = ['SL', 'TL (%)', 'SL', 'TL (%)', 'SL', 'TL (%)', 'SL', 'TL (%)'];
+        subHeaders.forEach((h, i) => {
+           const cell = ws.getCell(currRow + 1, i + 3);
+           cell.value = h;
+           cell.fill = subHeaderFill;
         });
-        currRow++;
 
-        // Hàng 2: Năm cũ
-        const rOld = ws.getRow(currRow);
-        rOld.getCell(1).value = oldYear; rOld.getCell(2).value = data.totalOld;
-        rOld.getCell(3).value = data.metrics.good.oSL; rOld.getCell(4).value = data.metrics.good.oTL / 100;
-        rOld.getCell(5).value = data.metrics.fair.oSL; rOld.getCell(6).value = data.metrics.fair.oTL / 100;
-        rOld.getCell(7).value = data.metrics.passed.oSL; rOld.getCell(8).value = data.metrics.passed.oTL / 100;
-        rOld.getCell(9).value = data.metrics.failed.oSL; rOld.getCell(10).value = data.metrics.failed.oTL / 100;
-        currRow++;
-
-        // Hàng 3: Năm mới
-        const rNew = ws.getRow(currRow);
-        rNew.getCell(1).value = newYear; rNew.getCell(2).value = data.totalNew;
-        rNew.getCell(3).value = data.metrics.good.nSL; rNew.getCell(4).value = data.metrics.good.nTL / 100;
-        rNew.getCell(5).value = data.metrics.fair.nSL; rNew.getCell(6).value = data.metrics.fair.nTL / 100;
-        rNew.getCell(7).value = data.metrics.passed.nSL; rNew.getCell(8).value = data.metrics.passed.nTL / 100;
-        rNew.getCell(9).value = data.metrics.failed.nSL; rNew.getCell(10).value = data.metrics.failed.nTL / 100;
-        currRow++;
-
-        // Hàng 4: Tăng/giảm
-        const rDiff = ws.getRow(currRow);
-        rDiff.getCell(1).value = 'Tăng / giảm'; rDiff.getCell(2).value = data.totalNew - data.totalOld;
-        rDiff.getCell(3).value = data.metrics.good.nSL - data.metrics.good.oSL; rDiff.getCell(4).value = (data.metrics.good.nTL - data.metrics.good.oTL) / 100;
-        rDiff.getCell(5).value = data.metrics.fair.nSL - data.metrics.fair.oSL; rDiff.getCell(6).value = (data.metrics.fair.nTL - data.metrics.fair.oTL) / 100;
-        rDiff.getCell(7).value = data.metrics.passed.nSL - data.metrics.passed.oSL; rDiff.getCell(8).value = (data.metrics.passed.nTL - data.metrics.passed.oTL) / 100;
-        rDiff.getCell(9).value = data.metrics.failed.nSL - data.metrics.failed.oSL; rDiff.getCell(10).value = (data.metrics.failed.nTL - data.metrics.failed.oTL) / 100;
-        currRow++;
-
-        // Áp dụng viền, font, màu sắc cho 3 hàng dữ liệu
-        for (let r = currRow - 3; r <= currRow - 1; r++) {
-          const row = ws.getRow(r);
+        // Style cho cả 2 hàng tiêu đề
+        for (let r = currRow; r <= currRow + 1; r++) {
           for (let c = 1; c <= 10; c++) {
-            const cell = row.getCell(c);
+            const cell = ws.getCell(r, c);
+            cell.font = { name: 'Times New Roman', bold: true, size: 10 };
+            if (r === currRow) cell.fill = headerFill;
             cell.border = border;
-            cell.font = { name: 'Times New Roman', size: 10, bold: r === currRow - 1 };
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
-            
-            // Format % cho các cột chẵn từ cột 4 trở đi
-            if (c % 2 === 0 && c >= 4) cell.numFmt = '0.00%'; 
-            
-            // Đổi màu xanh/đỏ cho hàng Tăng/giảm
-            if (r === currRow - 1 && c > 1) {
-               const val = cell.value as number;
-               if (val > 0) cell.font.color = { argb: 'FF008000' };
-               else if (val < 0) cell.font.color = { argb: 'FFFF0000' };
-            }
           }
         }
-        currRow++; // Xuống dòng cách 1 hàng cho bảng tiếp theo
+        currRow += 2;
+
+        const addRow = (yearText: string, total: number, m: any, isDiff = false) => {
+          const r = ws.getRow(currRow);
+          r.getCell(1).value = yearText; r.getCell(2).value = total;
+          r.getCell(3).value = m.good.sl; r.getCell(4).value = m.good.tl / 100;
+          r.getCell(5).value = m.fair.sl; r.getCell(6).value = m.fair.tl / 100;
+          r.getCell(7).value = m.passed.sl; r.getCell(8).value = m.passed.tl / 100;
+          r.getCell(9).value = m.failed.sl; r.getCell(10).value = m.failed.tl / 100;
+
+          for (let c = 1; c <= 10; c++) {
+            const cell = r.getCell(c);
+            cell.border = border;
+            cell.font = { name: 'Times New Roman', size: 10, bold: isDiff };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (c % 2 === 0 && c >= 4) cell.numFmt = '0.00%';
+            if (isDiff && c > 1) {
+              const val = cell.value as number;
+              if (val > 0) cell.font.color = { argb: 'FF008000' };
+              else if (val < 0) cell.font.color = { argb: 'FFFF0000' };
+            }
+          }
+          currRow++;
+        };
+
+        const metricsOld = {
+          good: { sl: data.metrics.good.oSL, tl: data.metrics.good.oTL },
+          fair: { sl: data.metrics.fair.oSL, tl: data.metrics.fair.oTL },
+          passed: { sl: data.metrics.passed.oSL, tl: data.metrics.passed.oTL },
+          failed: { sl: data.metrics.failed.oSL, tl: data.metrics.failed.oTL }
+        };
+        const metricsNew = {
+          good: { sl: data.metrics.good.nSL, tl: data.metrics.good.nTL },
+          fair: { sl: data.metrics.fair.nSL, tl: data.metrics.fair.nTL },
+          passed: { sl: data.metrics.passed.nSL, tl: data.metrics.passed.nTL },
+          failed: { sl: data.metrics.failed.nSL, tl: data.metrics.failed.nTL }
+        };
+        const metricsDiff = {
+          good: { sl: data.metrics.good.nSL - data.metrics.good.oSL, tl: data.metrics.good.nTL - data.metrics.good.oTL },
+          fair: { sl: data.metrics.fair.nSL - data.metrics.fair.oSL, tl: data.metrics.fair.nTL - data.metrics.fair.oTL },
+          passed: { sl: data.metrics.passed.nSL - data.metrics.passed.oSL, tl: data.metrics.passed.nTL - data.metrics.passed.oTL },
+          failed: { sl: data.metrics.failed.nSL - data.metrics.failed.oSL, tl: data.metrics.failed.nTL - data.metrics.failed.oTL }
+        };
+
+        addRow(oldYear, data.totalOld, metricsOld);
+        addRow(newYear, data.totalNew, metricsNew);
+        addRow('Tăng / giảm', data.totalNew - data.totalOld, metricsDiff, true);
+        currRow++;
       };
 
       drawBlock(`I. ${matrix.school.label}`, matrix.school);
@@ -286,78 +281,90 @@ const App: React.FC = () => {
         g.classes.forEach(c => drawBlock(`Lớp: ${c.label}`, c));
       });
 
-      // Căn chỉnh độ rộng cột chuẩn A4 dọc
-      ws.getColumn(1).width = 15;
-      ws.getColumn(2).width = 10;
+      ws.getColumn(1).width = 15; ws.getColumn(2).width = 10;
       for (let c = 3; c <= 10; c++) ws.getColumn(c).width = 9;
 
+      const finalFileName = activeCategory === 'study' ? 'So sánh học tập' : 'So sánh rèn luyện';
       const buffer = await wb.xlsx.writeBuffer();
-      saveAs(new Blob([buffer]), `So_Sanh_Mau_2_${newYear}.xlsx`);
+      saveAs(new Blob([buffer]), `${finalFileName}.xlsx`);
     } catch (e) { setError("Lỗi xuất Excel"); } finally { setLoading(false); }
   };
 
-  // XUẤT WORD THEO CẤU TRÚC 10 CỘT X 4 HÀNG
+  // ✅ WORD MẪU 2 - NÂNG CẤP GỘP TIÊU ĐỀ (MERGE & SPLIT)
   const exportSummaryWordMẫu2 = async () => {
     if (!oldReport || !newReport) return;
     try {
       setLoading(true);
       const matrix = getFullMatrix();
-      const categoryTitle = activeCategory === 'study' ? 'HỌC TẬP' : 'RÈN LUYỆN';
+      const finalFileName = activeCategory === 'study' ? 'So sánh học tập' : 'So sánh rèn luyện';
 
-      const createCell = (t: string, b = false, align = docx.AlignmentType.CENTER, color?: string, bg?: string) => new docx.TableCell({
-        children: [new docx.Paragraph({ alignment: align, children: [new docx.TextRun({ text: t, bold: b, color: color, font: "Times New Roman", size: 18 })] })], // size 18 = 9pt
-        verticalAlign: docx.VerticalAlign.CENTER, shading: bg ? { fill: bg } : undefined,
+      const createCell = (t: string, b = false, align = docx.AlignmentType.CENTER, rSpan = 1, cSpan = 1, bg?: string, color?: string) => new docx.TableCell({
+        children: [new docx.Paragraph({ alignment: align, children: [new docx.TextRun({ text: t, bold: b, color: color, font: "Times New Roman", size: 18 })] })],
+        verticalAlign: docx.VerticalAlign.CENTER, rowSpan, columnSpan: cSpan, shading: bg ? { fill: bg } : undefined,
         margins: { top: 60, bottom: 60, left: 40, right: 40 }
       });
 
       const drawTableDocx = (data: any) => {
-        const hRow = new docx.TableRow({
-          children: ['Năm học', 'Tổng HS', 'Tốt (SL)', 'Tốt (%)', 'Khá (SL)', 'Khá (%)', 'Đạt (SL)', 'Đạt (%)', 'CĐ (SL)', 'CĐ (%)'].map(h => createCell(h, true, docx.AlignmentType.CENTER, undefined, "E9F0F8"))
-        });
+        const rows = [
+          // Hàng tiêu đề 1 (Gộp ngang)
+          new docx.TableRow({
+            children: [
+              createCell("Năm học", true, docx.AlignmentType.CENTER, 2, 1, "E9F0F8"),
+              createCell("Tổng số HS", true, docx.AlignmentType.CENTER, 2, 1, "E9F0F8"),
+              createCell("TỐT", true, docx.AlignmentType.CENTER, 1, 2, "E9F0F8"),
+              createCell("KHÁ", true, docx.AlignmentType.CENTER, 1, 2, "E9F0F8"),
+              createCell("ĐẠT", true, docx.AlignmentType.CENTER, 1, 2, "E9F0F8"),
+              createCell("CĐ", true, docx.AlignmentType.CENTER, 1, 2, "E9F0F8"),
+            ]
+          }),
+          // Hàng tiêu đề 2 (Chia nhỏ SL/TL)
+          new docx.TableRow({
+            children: [
+              // 2 ô đầu đã bị gộp từ trên xuống (rowSpan=2) nên ở đây không cần khai báo lại hoặc khai báo rỗng
+              createCell("SL", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("TL %", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("SL", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("TL %", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("SL", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("TL %", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("SL", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+              createCell("TL %", true, docx.AlignmentType.CENTER, 1, 1, "F2F2F2"),
+            ]
+          })
+        ];
 
-        const oRow = new docx.TableRow({
-          children: [
-            createCell(oldYear), createCell(data.totalOld.toString()),
-            createCell(data.metrics.good.oSL.toString()), createCell(data.metrics.good.oTL.toFixed(2) + "%"),
-            createCell(data.metrics.fair.oSL.toString()), createCell(data.metrics.fair.oTL.toFixed(2) + "%"),
-            createCell(data.metrics.passed.oSL.toString()), createCell(data.metrics.passed.oTL.toFixed(2) + "%"),
-            createCell(data.metrics.failed.oSL.toString()), createCell(data.metrics.failed.oTL.toFixed(2) + "%"),
-          ]
-        });
+        const addDataRow = (y: string, t: number, m: any, isDiff = false) => {
+          const colorVal = (v: number) => v > 0 ? "008000" : v < 0 ? "FF0000" : "000000";
+          const fmt = (v: number, isPct = false) => isPct ? (v > 0 ? "+" : "") + v.toFixed(2) + "%" : (v > 0 ? "+" : "") + v.toString();
 
-        const nRow = new docx.TableRow({
-          children: [
-            createCell(newYear), createCell(data.totalNew.toString()),
-            createCell(data.metrics.good.nSL.toString()), createCell(data.metrics.good.nTL.toFixed(2) + "%"),
-            createCell(data.metrics.fair.nSL.toString()), createCell(data.metrics.fair.nTL.toFixed(2) + "%"),
-            createCell(data.metrics.passed.nSL.toString()), createCell(data.metrics.passed.nTL.toFixed(2) + "%"),
-            createCell(data.metrics.failed.nSL.toString()), createCell(data.metrics.failed.nTL.toFixed(2) + "%"),
-          ]
-        });
+          rows.push(new docx.TableRow({
+            children: [
+              createCell(y, isDiff), createCell(isDiff ? fmt(t) : t.toString(), isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(t) : undefined),
+              createCell(isDiff ? fmt(m.good.sl) : m.good.sl.toString(), isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.good.sl) : undefined),
+              createCell(isDiff ? fmt(m.good.tl, true) : m.good.tl.toFixed(2) + "%", isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.good.tl) : undefined),
+              createCell(isDiff ? fmt(m.fair.sl) : m.fair.sl.toString(), isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.fair.sl) : undefined),
+              createCell(isDiff ? fmt(m.fair.tl, true) : m.fair.tl.toFixed(2) + "%", isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.fair.tl) : undefined),
+              createCell(isDiff ? fmt(m.passed.sl) : m.passed.sl.toString(), isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.passed.sl) : undefined),
+              createCell(isDiff ? fmt(m.passed.tl, true) : m.passed.tl.toFixed(2) + "%", isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.passed.tl) : undefined),
+              createCell(isDiff ? fmt(m.failed.sl) : m.failed.sl.toString(), isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.failed.sl) : undefined),
+              createCell(isDiff ? fmt(m.failed.tl, true) : m.failed.tl.toFixed(2) + "%", isDiff, docx.AlignmentType.CENTER, 1, 1, undefined, isDiff ? colorVal(m.failed.tl) : undefined),
+            ]
+          }));
+        };
 
-        const getColor = (v: number) => v > 0 ? "008000" : v < 0 ? "FF0000" : "000000";
-        const getVal = (v: number, isPct = false) => v > 0 ? `+${v.toFixed(isPct ? 2 : 0)}${isPct ? '%' : ''}` : `${v.toFixed(isPct ? 2 : 0)}${isPct ? '%' : ''}`;
+        const mO = { good: { sl: data.metrics.good.oSL, tl: data.metrics.good.oTL }, fair: { sl: data.metrics.fair.oSL, tl: data.metrics.fair.oTL }, passed: { sl: data.metrics.passed.oSL, tl: data.metrics.passed.oTL }, failed: { sl: data.metrics.failed.oSL, tl: data.metrics.failed.oTL } };
+        const mN = { good: { sl: data.metrics.good.nSL, tl: data.metrics.good.nTL }, fair: { sl: data.metrics.fair.nSL, tl: data.metrics.fair.nTL }, passed: { sl: data.metrics.passed.nSL, tl: data.metrics.passed.nTL }, failed: { sl: data.metrics.failed.nSL, tl: data.metrics.failed.nTL } };
+        const mD = { good: { sl: data.metrics.good.nSL - data.metrics.good.oSL, tl: data.metrics.good.nTL - data.metrics.good.oTL }, fair: { sl: data.metrics.fair.nSL - data.metrics.fair.oSL, tl: data.metrics.fair.nTL - data.metrics.fair.oTL }, passed: { sl: data.metrics.passed.nSL - data.metrics.passed.oSL, tl: data.metrics.passed.nTL - data.metrics.passed.oTL }, failed: { sl: data.metrics.failed.nSL - data.metrics.failed.oSL, tl: data.metrics.failed.nTL - data.metrics.failed.oTL } };
 
-        const diffRow = new docx.TableRow({
-          children: [
-            createCell("Tăng/giảm", true), 
-            createCell(getVal(data.totalNew - data.totalOld), true, docx.AlignmentType.CENTER, getColor(data.totalNew - data.totalOld)),
-            createCell(getVal(data.metrics.good.nSL - data.metrics.good.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.good.nSL - data.metrics.good.oSL)),
-            createCell(getVal(data.metrics.good.nTL - data.metrics.good.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.good.nTL - data.metrics.good.oTL)),
-            createCell(getVal(data.metrics.fair.nSL - data.metrics.fair.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.fair.nSL - data.metrics.fair.oSL)),
-            createCell(getVal(data.metrics.fair.nTL - data.metrics.fair.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.fair.nTL - data.metrics.fair.oTL)),
-            createCell(getVal(data.metrics.passed.nSL - data.metrics.passed.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.passed.nSL - data.metrics.passed.oSL)),
-            createCell(getVal(data.metrics.passed.nTL - data.metrics.passed.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.passed.nTL - data.metrics.passed.oTL)),
-            createCell(getVal(data.metrics.failed.nSL - data.metrics.failed.oSL), true, docx.AlignmentType.CENTER, getColor(data.metrics.failed.nSL - data.metrics.failed.oSL)),
-            createCell(getVal(data.metrics.failed.nTL - data.metrics.failed.oTL, true), true, docx.AlignmentType.CENTER, getColor(data.metrics.failed.nTL - data.metrics.failed.oTL)),
-          ]
-        });
+        addDataRow(oldYear, data.totalOld, mO);
+        addDataRow(newYear, data.totalNew, mN);
+        addDataRow('Tăng / giảm', data.totalNew - data.totalOld, mD, true);
 
-        return new docx.Table({ width: { size: 100, type: docx.WidthType.PERCENTAGE }, rows: [hRow, oRow, nRow, diffRow] });
+        return new docx.Table({ width: { size: 100, type: docx.WidthType.PERCENTAGE }, rows });
       };
 
       const docChildren: any[] = [
-        new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ text: `BÁO CÁO SO SÁNH ${categoryTitle}`, bold: true, size: 28, font: "Times New Roman" })] }),
+        new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ text: `BÁO CÁO SO SÁNH ${activeCategory === 'study' ? 'HỌC TẬP' : 'RÈN LUYỆN'}`, bold: true, size: 28, font: "Times New Roman" })] }),
         new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, spacing: { after: 300 }, children: [new docx.TextRun({ text: `Năm học ${newYear} so với ${oldYear}`, italics: true, size: 22, font: "Times New Roman" })] })
       ];
 
@@ -367,7 +374,6 @@ const App: React.FC = () => {
       matrix.grades.forEach((g, idx) => {
         docChildren.push(new docx.Paragraph({ children: [new docx.TextRun({ text: `II.${idx+1}. KHỐI: ${g.label.toUpperCase()}`, bold: true, size: 20, color: "0000FF", font: "Times New Roman" })], spacing: { before: 300, after: 100 } }));
         docChildren.push(drawTableDocx(g));
-        
         g.classes.forEach(c => {
           docChildren.push(new docx.Paragraph({ children: [new docx.TextRun({ text: `Lớp: ${c.label}`, bold: true, size: 18, font: "Times New Roman" })], spacing: { before: 150, after: 100 } }));
           docChildren.push(drawTableDocx(c));
@@ -379,7 +385,7 @@ const App: React.FC = () => {
       });
 
       const blob = await docx.Packer.toBlob(doc);
-      saveAs(blob, `So_Sanh_Mau_2_${newYear}.docx`);
+      saveAs(blob, `${finalFileName}.docx`);
     } catch (e) { setError("Lỗi xuất Word"); } finally { setLoading(false); }
   };
 
@@ -401,8 +407,6 @@ const App: React.FC = () => {
               <div className="flex gap-2 bg-slate-100 p-1 rounded-xl mr-4">
                 <button onClick={() => exportAsImage(reportRef, `Bao_Cao`)} className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><ImageIcon size={18} /></button>
                 <button onClick={() => exportAsPDF(reportRef, `Bao_Cao`)} className="p-2 hover:bg-white rounded-lg transition-all text-slate-600"><FileText size={18} /></button>
-                
-                {/* NHÓM NÚT XUẤT FILE MẪU 2 (CHUẨN BÁO CÁO A4) */}
                 <div className="h-8 w-px bg-slate-300 mx-1"></div>
                 <button onClick={exportSummaryExcelMẫu2} className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-all flex items-center gap-1 font-bold text-[10px] border border-emerald-200">
                   <FileJson size={14} /> EXCEL (MẪU 2)
